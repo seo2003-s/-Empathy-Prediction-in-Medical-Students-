@@ -1,0 +1,316 @@
+---
+title: "STAT183_Proj_Progress"
+output: html_document
+name: "Group 8"
+date: "2025-05-16"
+---
+
+## R Markdown
+
+```{r}
+library(tidyverse)
+library(car)
+library(tidyr)
+library(GGally)
+library(ggplot2)
+library(gridExtra)
+library(lme4)
+library(stats)
+library(aod)
+
+#Data set up
+data <- read.csv("Data EVOL EMPA.csv")
+
+#Get rid on NA's
+missing <-is.na(data)
+byrow_missing <- apply(missing, MARGIN = 1, sum)
+data <- data[byrow_missing == 0, ]
+
+#Select individuals that participated in at least three waves
+data <- data[data$longipart == "123" | data$longipart == "124" | data$longipart == "134" | data$longipart == "234" | data$longipart == "1234", ]
+
+#Create binary variable, 1 if above the average empathy score
+data$above_avg <- rep(0, length(data$idlong))
+for(i in 1:length(data$above_avg)){
+  if(data$jspe[i] > 107) {
+    data$above_avg[i] = 1
+  }
+}
+
+#Choose variable of interest
+data <- data[, c(1, 2, 3, 4, 10, 12, 14, 23, 24, 25)]
+
+data$idlong <- as.factor(data$idlong)
+data$fmale <- as.factor(data$fmale)
+data$part <- as.factor(data$part)
+data$psyt <- as.factor(data$psyt)
+
+#(1)Subject ID, (2)number of waves, (3)waves participated in, (4)year in medical school
+#(5)gender, (6)if subject has a partner, (7)if subject has seen a psychotherapist
+#(8)hours of physical activity a week, (9)health satisfaction, (10)above average empathy(outcome)
+
+#500 subjects
+#1683 observations
+#group is subject ID (idlong)
+#time variable is 'year'
+```
+
+```{r}
+#EDA, done but not included in this file
+```
+
+```{r}
+#ERROR - DON'T RUN!
+
+#Starting with full model (random intercept and slope)
+
+#Cannot use model because there is not enough data to add slope, reflected in singularity error when attempting to run model
+
+model <- glmer(above_avg ~ year + fmale + part + psyt + physact + health + (1+year|idlong), data = data, family = binomial, control = glmerControl(optimizer = "bobyqa")) #Optimizer needed to be changed as well
+
+summary(model)
+
+#Since not enough data, not a good model, fit new full model
+```
+
+```{r}
+#Main effects + intercept for multicolinearity check
+
+model1 <- glmer(above_avg ~ year + fmale + part + psyt + physact + health + (1|idlong), data = data, family = binomial)
+
+summary(model1)
+
+vif(model1)
+
+```
+```{r}
+#Plot for random intercept model
+
+#Calculate logit of probability of above average empathy
+probabilities <- predict(model1, newdata = data, type = "response")
+logit = log(probabilities/(1 - probabilities))
+
+
+#Get estimates for each subject
+model_coef <- coef(model1)$idlong %>%
+  rename(Intercept = '(Intercept)')
+
+
+#Since 500 subjects, look at 10 random subjects and their intercepts
+set.seed(183)
+samp_model_coef <- model_coef[sample(1:500, 10, replace = F), ]
+ID <- row.names(samp_model_coef)
+
+#Plot
+ggplot(data, aes(x = year, y = logit)) +
+  geom_point(alpha = 0) +
+  geom_abline(data = samp_model_coef, aes(intercept = Intercept, slope = year, colour = ID)) +
+  geom_abline(intercept = fixef(model1)[["(Intercept)"]], 
+              slope = fixef(model1)[["year"]], 
+              lwd = 2, col = "red") + 
+  labs(title = "Above Average Probability vs Year", 
+       y = "Logit of Probability of Above Average")
+
+```
+
+
+
+
+```{r}
+#ERROR - DON'T RUN!
+
+#Model with random intercept, higher order terms, and interactions
+new_model <-  glmer(above_avg ~ year + fmale + part + psyt + physact + health + I(physact^2) + I(physact^3) + I(health^2) + physact*part + health*part + (1|idlong), data = data, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+#Error:Fails to converge with potential quadratic and interaction terms and changed optimizer
+#Fit another model
+```
+
+```{r}
+#ERROR - DON'T RUN!
+
+#Fails to converge on default optimizer, change optimizer
+
+#Model with no interactions or higher order quadratics
+new_model2 <-  glmer(above_avg ~ year + fmale + part + psyt + physact + health + I(physact^2) + I(health^2) + physact*part + health*part + (1|idlong), data = data, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+summary(new_model2)
+
+
+#Residuals seem good for numeric variables 
+ggplot(data, aes(x = physact, y = residuals(new_model2, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Physical Activity", x = "Physical Activity", y = "Residuals")
+
+ggplot(data, aes(x = health, y = residuals(new_model2, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Health", x = "Health", y = "Residuals")
+
+
+wald.test(b = fixef(new_model2),
+          Sigma = vcov(new_model2),
+          Terms = 2:length(fixef(new_model2)))
+
+#passes global Wald test (p-value < 0.05)
+
+
+```
+
+
+
+```{r}
+
+#Fails to converge on default optimizer, change optimizer
+
+new_model2_2 <- glmer(above_avg ~ year + fmale + part + psyt + physact + health + I(physact^2) + I(health^2) + (1|idlong), data = data, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+summary(new_model2_2)
+
+
+#Residuals seem good for numeric variables 
+ggplot(data, aes(x = physact, y = residuals(new_model2_2, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Physical Activity", x = "Physical Activity", y = "Residuals")
+
+ggplot(data, aes(x = health, y = residuals(new_model2_2, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Health", x = "Health", y = "Residuals")
+
+wald.test(b = fixef(new_model2_2),
+          Sigma = vcov(new_model2_2),
+          Terms = 2:length(fixef(new_model2_2)))
+
+#passes global Wald test (p-value < 0.05)
+```
+```{r}
+#Likelihood Ratio Test
+mod.loglik = logLik(new_model2)
+reduced.loglik = logLik(new_model2_2)
+
+mod.loglik
+reduced.loglik
+
+teststat <- -2*(as.numeric(reduced.loglik) - as.numeric(mod.loglik))
+
+p.val <- pchisq(teststat, df = 1, lower.tail = FALSE) #p-value of 0.5192147, implies go with reduced model
+
+p.val
+```
+
+
+
+```{r}
+#Fails to converge on default optimizer, change optimizer
+
+
+new_model4 <-  glmer(above_avg ~ year + fmale + part + psyt + physact + health + I(physact^2) + (1|idlong), data = data, family = binomial, control = glmerControl(optimizer = "bobyqa"))
+
+summary(new_model4)
+
+#Residuals seem good for numeric variables 
+ggplot(data, aes(x = physact, y = residuals(new_model4, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Physical Activity", x = "Physical Activity", y = "Residuals")
+
+ggplot(data, aes(x = health, y = residuals(new_model4, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Health", x = "Health", y = "Residuals")
+
+wald.test(b = fixef(new_model4),
+          Sigma = vcov(new_model4),
+          Terms = 2:length(fixef(new_model4)))
+
+#passes global Wald test (p-value < 0.05)
+```
+
+```{r}
+#Likelihood Ratio Test
+mod.loglik = logLik(new_model2_2)
+reduced.loglik = logLik(new_model4)
+
+mod.loglik
+reduced.loglik
+
+teststat <- -2*(as.numeric(reduced.loglik) - as.numeric(mod.loglik))
+
+p.val <- pchisq(teststat, df = 1, lower.tail = FALSE) #p-value of 0.1919518, implies go with reduced model
+
+p.val
+```
+
+
+```{r}
+?glmer
+
+#full_model (random intercept)
+new_model5 <- glmer(above_avg ~ year + fmale + part + psyt + physact + health + (1|idlong), data = data, family = binomial)
+summary(new_model5)
+
+
+#Residuals seem good for numeric variables 
+ggplot(data, aes(x = physact, y = residuals(new_model5, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Physical Activity", x = "Physical Activity", y = "Residuals")
+
+ggplot(data, aes(x = health, y = residuals(new_model5, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Health", x = "Health", y = "Residuals")
+
+wald.test(b = fixef(new_model5),
+          Sigma = vcov(new_model5),
+          Terms = 2:length(fixef(new_model5)))
+
+#passes global Wald test (p-value < 0.05)
+
+```
+
+```{r}
+#Likelihood Ratio Test
+mod.loglik = logLik(new_model4)
+reduced.loglik = logLik(new_model5)
+
+mod.loglik
+reduced.loglik
+
+teststat <- -2*(as.numeric(reduced.loglik) - as.numeric(mod.loglik))
+
+p.val <- pchisq(teststat, df = 1, lower.tail = FALSE) #p-value of 0.5298051, implies go with reduced model
+
+p.val
+```
+
+
+```{r}
+#Random effects are done, now eliminate fixed effects with no significance (psyt and health)
+
+new_model6 <- glmer(above_avg ~ year + fmale + part + physact + (1|idlong), data = data, family = binomial)
+summary(new_model6)
+
+
+#Residuals seem good for numeric variables 
+ggplot(data, aes(x = physact, y = residuals(new_model6, "pearson"))) + geom_point() +
+  geom_smooth(method = "loess") +
+  labs(title = "Residuals vs. Physical Activity", x = "Physical Activity", y = "Residuals")
+
+wald.test(b = fixef(new_model6),
+          Sigma = vcov(new_model6),
+          Terms = 2:length(fixef(new_model6)))
+
+
+```
+
+```{r}
+#Likelihood Ratio Test
+mod.loglik = logLik(new_model5)
+reduced.loglik = logLik(new_model6)
+
+mod.loglik
+reduced.loglik
+
+teststat <- -2*(as.numeric(reduced.loglik) - as.numeric(mod.loglik))
+
+p.val <- pchisq(teststat, df = 1, lower.tail = FALSE) #p-value of 0.8634, implies go with reduced model
+
+p.val
+
+#All fixed effects are significant, so this is the final model
+```
+
